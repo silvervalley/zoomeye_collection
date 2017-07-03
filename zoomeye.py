@@ -27,6 +27,8 @@ class zoomeye():
 			#print r.content
 			content = json.loads(r.content)
 			print content[u'matches'][0][u'ip']
+			#----
+			print 1
 
 
 if __name__ == '__main__':
