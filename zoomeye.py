@@ -1,15 +1,16 @@
-#!/usr/bin/python
-# -*- coding: UTF-8 -*-
+# -*- coding: utf-8 -*
 
 import os
 import json
 import math
+import censys
 import pymongo
 import shodan
 import requests
 from requests.auth import HTTPBasicAuth
-
+from censys import *
 from pymongo import MongoClient
+from time import sleep
 
 class zoomeye():
 
@@ -99,18 +100,68 @@ class DiTng():
 		pass
 
 class Censys():
+	port = [u'102/s7', u'502/modbus']
 
 	def __init__(self):
-		pass
+		con = MongoClient(host='127.0.0.1', port=27017)
+		db = con.get_database('IOT')
+		self.col = db.get_collection('censys')
 
-	def main(self):
-		pass
+		self.API_URL = "https://www.censys.io/api/v1"
+		self.UID = "55a9a367-a2c6-4bf9-b2fb-054d93541af6"
+		self.SECRET = "mKnixOhpaLqXEtdkgtd0IMTJXd97toP3"
+
+		#self.UID = "85e64536-7534-4177-8c72-9a383bf01f12"
+		#self.SECRET = "9hCyul4KXJKXieyXeGIFT0lr04rbN9yQ"
+
+	def search(self):
+
+		pages =2 #float('inf')
+		page = 1
+
+		for port_item in self.port:
+			params = {u'query': 'protocols:"102/s7"',u'page': page}
+			print type(params)
+			url = self.API_URL + "/search/ipv4"
+			res = requests.post(url, data=json.dumps(params), auth=(self.UID, self.SECRET))
+			payload = res.json()
+			metadata = payload['metadata']
+			metadata['_id'] = 'metadata:' + port_item
+			print metadata
+			self.col.replace_one({'_id':metadata['_id']},metadata,upsert=True)
+			#---------------------------
+			#insert the metadata result
+			print 'Total page is %d' % payload['metadata']['pages']
+			for r in payload['results']:
+				r['_id']= r['ip']+':'+ port_item
+				self.col.delete_one({'_id':r['_id']})
+				self.col.insert(r,check_keys=False)
+			sleep(10)
+			#----------------------------
+			for page_item in range(2,payload['metadata']['pages']):
+				params = {u'query': 'protocols:"102/s7"', u'page': page_item}
+				res = requests.post(url, data=json.dumps(params), auth=(self.UID, self.SECRET))
+				payload = res.json()
+				for r in payload['results']:
+					r['_id'] = r['ip'] + ':' + port_item
+					self.col.delete_one({'_id': r['_id']})
+					self.col.insert( r, check_keys=False)
+				sleep(10)
+
+
+	def search2(self):
+		api = censys.ipv4.CensysIPv4(api_id=self.UID, api_secret=self.SECRET)
+		res = api.search({'protocols':"102/s7"})
+		matches = res['metadata']['count']
+		pageNum = matches / 100
+		if matches % 100 != 0:
+			pageNum = pageNum + 1
 
 
 
 if __name__ == '__main__':
-	x = zoomeye()
-	x.main()
+	x = Censys()
+	x.search()
 
 
 
