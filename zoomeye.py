@@ -7,6 +7,7 @@ import censys
 import pymongo
 import shodan
 import requests
+import scrapy
 from requests.auth import HTTPBasicAuth
 from censys import *
 from pymongo import MongoClient
@@ -52,7 +53,8 @@ class zoomeye():
 					print 'length of the result is '
 					print len(inner[u'matches'])
 					for node in inner[u'matches']:
-						self.col.insert(node)
+						node['_id'] = node['ip'] +':' + str(port_item)
+						self.col.insert(node,check_keys=False)
 			else:
 				print 'not success,get None result'
 		
@@ -94,10 +96,62 @@ class DiTng():
 	port = [102, 502, 5007, 9600, 44818]
 
 	def __init__(self):
-		pass
+		con = MongoClient(host='127.0.0.1', port=27017)
+		self.db = con.get_database('IOT')
+		self.col = self.db.get_collection('Diting')
 
 	def main(self):
-		pass
+		start_urls = []
+		for port_item in self.port:
+			url = 'http://www.ditecting.com/index.php/home/result/index/query/port:%d' % port_item
+			r = requests.get(url)
+			content = scrapy.Selector(text=r.text)
+			end = content.xpath(
+				'//div[@class="pagination"]//li/a/text()').extract_first().split('/')[-1]
+			print '---------------------------'
+			print end
+			print '---------------------------'
+			for node in range(1,int(end)):
+				item_url = url + '/p/%d.html' % node
+				print item_url
+				r = requests.get(item_url)
+				insert_item = {}
+				insert_item['_id'] = item_url
+				insert_item['port'] = port_item
+				insert_item['body'] = r.text
+				try:
+					self.col.insert(insert_item,check_keys=False)
+				except Exception as e:
+					print e
+
+	def parse(self):
+		diting = self.db.get_collection('diting-result')
+		meta_diting = self.col
+		for node in meta_diting.find():
+			print node['_id']
+			content = node['body']
+			selector = scrapy.Selector(text=content)
+			items = selector.xpath('//div[@class="left"]/div[@class="panel panel-success"]')
+			for item in items:
+				index = items.index(item)
+				insert = {}
+				insert['ip'] = item.xpath('//p/strong/text()').extract()[index]
+				insert['port'] = node['port']
+				insert['_id'] = insert['ip'] + ':' + str(insert['port'])
+				insert['location'] = item.xpath(\
+					'//div[@class="panel-body"]/p[1]/text()'
+				).extract()[index]
+				insert['service'] = item.xpath(\
+					'//div[@class="panel-body"]/p[2]/text()'
+				).extract()[index]
+				insert['banner'] = item.xpath( \
+					'//div[@class="panel-body"]/pre/xmp/text()'
+				).extract()[index]
+				try:
+					diting.insert(insert,check_keys=False)
+				except Exception as e:
+					print e
+
 
 class Censys():
 	port = [u'102/s7', u'502/modbus']
@@ -115,12 +169,9 @@ class Censys():
 		#self.SECRET = "9hCyul4KXJKXieyXeGIFT0lr04rbN9yQ"
 
 	def search(self):
-
-		pages =2 #float('inf')
 		page = 1
-
 		for port_item in self.port:
-			params = {u'query': 'protocols:"102/s7"',u'page': page}
+			params = {u'query': 'protocols:"%s"' % port_item,u'page': page}
 			print type(params)
 			url = self.API_URL + "/search/ipv4"
 			res = requests.post(url, data=json.dumps(params), auth=(self.UID, self.SECRET))
@@ -160,8 +211,8 @@ class Censys():
 
 
 if __name__ == '__main__':
-	x = Censys()
-	x.search()
+	x = DiTng()
+	x.parse()
 
 
 
